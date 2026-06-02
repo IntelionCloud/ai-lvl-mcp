@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from . import __version__
 from .client import AiLvlClient, AuthError
 from .config import get_refresh_token, load_config
 
@@ -97,5 +99,42 @@ def similar(
     return _call("/api/v1/me/similar", {"node_id": node_id, "top": top})
 
 
+def _vtuple(s: str) -> tuple[int, ...]:
+    """'0.2.0' → (0,2,0). Нецифровые суффиксы ('1.2.0rc1') обрезаются по компоненте."""
+    out = []
+    for part in (s or "0").split("."):
+        digits = ""
+        for ch in part:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        out.append(int(digits or 0))
+    return tuple(out)
+
+
+def _check_version() -> None:
+    """Server-driven version-nudge: сравнить свою версию с latest/min из /api/v1/me.
+
+    Best-effort: при сетевой ошибке/не-залогинен — молча пропускаем (доступ и так
+    зафейлится на первом инструменте). Ниже min_supported — выходим (форсим обновление).
+    """
+    try:
+        info = (_get_client().get("/api/v1/me") or {}).get("client") or {}
+    except Exception:
+        return
+    cur = _vtuple(__version__)
+    minv, latest = info.get("min_supported_version"), info.get("latest_version")
+    upgrade = info.get("upgrade") or "pipx upgrade ai-lvl-mcp"
+    if minv and cur < _vtuple(minv):
+        print(f"⛔ ai-lvl-mcp {__version__} ниже минимально поддерживаемой {minv}. "
+              f"Обновитесь: {upgrade}", file=sys.stderr)
+        sys.exit(1)
+    if latest and cur < _vtuple(latest):
+        print(f"ℹ ai-lvl-mcp: установлена {__version__}, доступна {latest}. "
+              f"Обновление: {upgrade}", file=sys.stderr)
+
+
 def run() -> None:
+    _check_version()
     mcp.run()  # stdio transport
