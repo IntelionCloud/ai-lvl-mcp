@@ -9,8 +9,20 @@
   `accessible_spaces_for`), клиент ничего не «расширяет».
 - Инструменты: `whoami`, `list_spaces`, `search`, `get_node`, `recent_changes`, `similar`.
 
-> Запись (push заметок) сюда **не входит** — это отдельный поток (Obsidian-плагин / edit-bot),
-> см. `docs/obsidian-plugin-spec.md`.
+> Запись (push заметок) сюда **не входит** — клиент read-only. Редактирование (для прав
+> `edit_direct`) — обычным `git clone`/`push` в Forgejo space-repo, либо через edit-bot.
+
+## Как устроено
+
+Тонкий клиент: вся логика и ACL — на сервере, на устройстве только refresh-токен (keychain),
+access-JWT — в памяти.
+
+- `ai-lvl-mcp serve` — stdio-MCP; инструменты проксируют на TLS-API
+  `ai-lvl.intelion.cloud/api/v1/me/*` под твоим JWT.
+- Сервер по JWT вычисляет доступные тебе spaces (роль в `employees.yaml` → teams →
+  sensitivity-тиры) и фильтрует выдачу — клиент не может увидеть лишнее.
+- Поиск — по графу знаний (KAG, hybrid + rerank); `get_node` отдаёт полную заметку.
+- Большинство улучшений серверные и доезжают **без** переустановки (см. «Обновление и версии»).
 
 ## Установка
 
