@@ -71,3 +71,19 @@ class AiLvlClient:
                 "content-type", "").startswith("application/json") else r.text[:200]}
         r.raise_for_status()
         return r.json()
+
+    def post_json(self, path: str, body: dict, timeout: float = 300.0) -> dict:
+        """POST JSON на sync-api с тем же 401-refresh-retry, что и get()."""
+        self._ensure_access()
+        headers = {"Authorization": f"Bearer {self._access}"}
+        r = httpx.post(f"{self.host}{path}", json=body, headers=headers, timeout=timeout)
+        if r.status_code == 401:  # access протух/отозван — один форс-refresh и повтор
+            self._access = None
+            self._ensure_access()
+            r = httpx.post(f"{self.host}{path}", json=body,
+                           headers={"Authorization": f"Bearer {self._access}"}, timeout=timeout)
+        if r.status_code == 403:
+            return {"error": "forbidden", "detail": r.json().get("detail") if r.headers.get(
+                "content-type", "").startswith("application/json") else r.text[:200]}
+        r.raise_for_status()
+        return r.json()

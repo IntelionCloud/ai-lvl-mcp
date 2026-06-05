@@ -6,8 +6,12 @@
 """
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
+import os
 import sys
+import time
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
@@ -42,6 +46,16 @@ def _call(path: str, params: dict | None = None) -> str:
         return json.dumps({"error": "not_authenticated", "hint": str(e)}, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001 — наружу отдаём короткий текст, не стектрейс
         return json.dumps({"error": "request_failed", "detail": str(e)[:300]}, ensure_ascii=False)
+
+
+def _post(path: str, body: dict, timeout: float = 300.0) -> dict:
+    """POST + единый error-shape (как _call, но возвращает dict для постобработки)."""
+    try:
+        return _get_client().post_json(path, body, timeout=timeout)
+    except AuthError as e:
+        return {"error": "not_authenticated", "hint": str(e)}
+    except Exception as e:  # noqa: BLE001
+        return {"error": "request_failed", "detail": str(e)[:300]}
 
 
 @mcp.tool()
@@ -97,6 +111,71 @@ def similar(
 ) -> str:
     """Семантически похожие заметки из доступных мне spaces."""
     return _call("/api/v1/me/similar", {"node_id": node_id, "top": top})
+
+
+# ── Media-инструменты (FLUX image-gen + Parakeet ASR через AI API RUS) ────────
+# Доступны роли author и приватному тиру; бесплатно (биллинг на сервисный аккаунт).
+# Ключ AI API живёт на сервере — клиент шлёт промпт/аудио под своим JWT.
+
+@mcp.tool()
+def generate_image(
+    prompt: str = Field(description="Текстовый промпт для генерации изображения (любой язык)."),
+    output_path: str | None = Field(
+        None, description="Куда сохранить PNG. По умолчанию — в текущую папку, имя по таймстемпу."),
+    size: str = Field("1024x1024", description="Размер, напр. '1024x1024' или '512x512'."),
+    n: int = Field(1, description="Сколько изображений сгенерировать (1-4)."),
+) -> str:
+    """Сгенерировать изображение по промпту (FLUX.1-schnell). Сохраняет PNG локально и
+    возвращает путь(и). Бесплатно для авторов и приватного доступа."""
+    n = max(1, min(int(n), 4))
+    res = _post("/api/v1/me/generate-image", {"prompt": prompt, "size": size, "n": n}, timeout=240.0)
+    if "error" in res:
+        return json.dumps(res, ensure_ascii=False)
+    data = res.get("data") or []
+    if not data:
+        return json.dumps({"error": "no_image", "detail": str(res)[:300]}, ensure_ascii=False)
+    base = os.path.expanduser(output_path) if output_path else os.path.join(
+        os.getcwd(), f"ai-lvl-image-{int(time.time())}.png")
+    root, ext = os.path.splitext(base)
+    ext = ext or ".png"
+    saved = []
+    for i, item in enumerate(data):
+        b64 = item.get("b64_json")
+        if not b64:
+            continue
+        path = base if len(data) == 1 else f"{root}-{i+1}{ext}"
+        try:
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(b64))
+            saved.append(os.path.abspath(path))
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": "write_failed", "detail": str(e)[:200]}, ensure_ascii=False)
+    return json.dumps({"ok": True, "model": "flux.1-schnell", "saved": saved,
+                       "count": len(saved)}, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def transcribe_audio(
+    file_path: str = Field(description="Путь к локальному аудиофайлу (wav/mp3/m4a/flac/ogg…)."),
+    language: str | None = Field(None, description="Опц. код языка-подсказки, напр. 'ru' или 'en'."),
+) -> str:
+    """Распознать речь из аудиофайла (Parakeet, RU/EN и ещё 23 языка). Возвращает текст.
+    Бесплатно для авторов и приватного доступа."""
+    path = os.path.expanduser(file_path)
+    if not os.path.isfile(path):
+        return json.dumps({"error": "file_not_found", "detail": path}, ensure_ascii=False)
+    try:
+        with open(path, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode("ascii")
+    except Exception as e:  # noqa: BLE001
+        return json.dumps({"error": "read_failed", "detail": str(e)[:200]}, ensure_ascii=False)
+    ctype, _ = mimetypes.guess_type(path)
+    body = {"audio_b64": audio_b64, "filename": os.path.basename(path),
+            "content_type": ctype or "application/octet-stream"}
+    if language:
+        body["language"] = language
+    res = _post("/api/v1/me/transcribe", body, timeout=300.0)
+    return json.dumps(res, ensure_ascii=False, indent=2)
 
 
 def _vtuple(s: str) -> tuple[int, ...]:

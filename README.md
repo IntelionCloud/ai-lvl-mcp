@@ -7,9 +7,13 @@
   и короткоживущий access JWT (только в памяти). Сервер сам обновляет access.
 - Доступ: read-only. Какие spaces видны — решает `employees.yaml` на сервере (ACL
   `accessible_spaces_for`), клиент ничего не «расширяет».
-- Инструменты: `whoami`, `list_spaces`, `search`, `get_node`, `recent_changes`, `similar`.
+- Инструменты знаний (read-only): `whoami`, `list_spaces`, `search`, `get_node`, `recent_changes`, `similar`.
+- Media-инструменты (роль author и приватный доступ, **бесплатно** — биллинг на сервисный аккаунт):
+  `generate_image` (FLUX.1-schnell, сохраняет PNG локально и возвращает путь) и
+  `transcribe_audio` (Parakeet ASR, RU/EN + ещё 23 языка). Ключ AI API живёт на сервере —
+  клиент шлёт промпт/аудио под своим JWT, сервер проксирует на AI API RUS.
 
-> Запись (push заметок) сюда **не входит** — клиент read-only. Редактирование (для прав
+> Запись заметок сюда **не входит** — knowledge-инструменты read-only. Редактирование (для прав
 > `edit_direct`) — обычным `git clone`/`push` в Forgejo space-repo, либо через edit-bot.
 
 ## Как устроено

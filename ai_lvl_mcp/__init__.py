@@ -5,4 +5,4 @@ OS-keychain, а MCP-инструменты отдают search/get_node/list_spa
 доступными spaces (ACL на стороне sync-api, /api/v1/me/*).
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
