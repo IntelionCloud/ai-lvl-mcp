@@ -10,7 +10,6 @@ import base64
 import json
 import mimetypes
 import os
-import sys
 import time
 
 from mcp.server.fastmcp import FastMCP
@@ -178,42 +177,8 @@ def transcribe_audio(
     return json.dumps(res, ensure_ascii=False, indent=2)
 
 
-def _vtuple(s: str) -> tuple[int, ...]:
-    """'0.2.0' → (0,2,0). Нецифровые суффиксы ('1.2.0rc1') обрезаются по компоненте."""
-    out = []
-    for part in (s or "0").split("."):
-        digits = ""
-        for ch in part:
-            if ch.isdigit():
-                digits += ch
-            else:
-                break
-        out.append(int(digits or 0))
-    return tuple(out)
-
-
-def _check_version() -> None:
-    """Server-driven version-nudge: сравнить свою версию с latest/min из /api/v1/me.
-
-    Best-effort: при сетевой ошибке/не-залогинен — молча пропускаем (доступ и так
-    зафейлится на первом инструменте). Ниже min_supported — выходим (форсим обновление).
-    """
-    try:
-        info = (_get_client().get("/api/v1/me") or {}).get("client") or {}
-    except Exception:
-        return
-    cur = _vtuple(__version__)
-    minv, latest = info.get("min_supported_version"), info.get("latest_version")
-    upgrade = info.get("upgrade") or "pipx upgrade ai-lvl-mcp"
-    if minv and cur < _vtuple(minv):
-        print(f"⛔ ai-lvl-mcp {__version__} ниже минимально поддерживаемой {minv}. "
-              f"Обновитесь: {upgrade}", file=sys.stderr)
-        sys.exit(1)
-    if latest and cur < _vtuple(latest):
-        print(f"ℹ ai-lvl-mcp: установлена {__version__}, доступна {latest}. "
-              f"Обновление: {upgrade}", file=sys.stderr)
-
-
 def run() -> None:
-    _check_version()
+    # Автообновление до начала stdio-протокола (best-effort; ниже min_supported — не стартуем).
+    from .update import maybe_self_update
+    maybe_self_update()
     mcp.run()  # stdio transport
